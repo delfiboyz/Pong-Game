@@ -36,9 +36,6 @@ Proyek ini adalah implementasi sederhana dari game Pong klasik menggunakan **HTM
 *Ganti dengan screenshot hasil game jika ada.*
 
 ## Credits
-
-Dibuat oleh [delfiboyz](https://github.com/delfiboyz) dengan bantuan GitHub Copilot.
-
 ---
 
 Selamat bermain Pong!
