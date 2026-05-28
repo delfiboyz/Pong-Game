@@ -1,152 +1,373 @@
-const canvas = document.getElementById('pong-canvas');
-const ctx = canvas.getContext('2d');
+/**
+ * Modern Neon Pong
+ * Refactored with OOP, State Machine, and Visual Effects
+ */
 
-// Game settings
-const paddleWidth = 15;
-const paddleHeight = 100;
-const ballRadius = 12;
-const playerX = 20;
-const aiX = canvas.width - playerX - paddleWidth;
-let playerY = canvas.height / 2 - paddleHeight / 2;
-let aiY = canvas.height / 2 - paddleHeight / 2;
-let playerScore = 0;
-let aiScore = 0;
+const STATES = {
+    START: 'START',
+    PLAYING: 'PLAYING',
+    PAUSED: 'PAUSED',
+    GAMEOVER: 'GAMEOVER'
+};
 
-// Ball settings
-let ballX = canvas.width / 2;
-let ballY = canvas.height / 2;
-let ballSpeed = 6;
-let ballVelX = ballSpeed * (Math.random() > 0.5 ? 1 : -1);
-let ballVelY = ballSpeed * (Math.random() * 2 - 1);
+const COLORS = {
+    BLUE: '#00f2ff',
+    PINK: '#ff00ff',
+    YELLOW: '#fff200',
+    WHITE: '#e0e0e0'
+};
 
-// Mouse control
-canvas.addEventListener('mousemove', function(e) {
-    const rect = canvas.getBoundingClientRect();
-    const mouseY = e.clientY - rect.top;
-    playerY = mouseY - paddleHeight / 2;
-    // Clamp within canvas
-    if (playerY < 0) playerY = 0;
-    if (playerY > canvas.height - paddleHeight) playerY = canvas.height - paddleHeight;
-});
+class Particle {
+    constructor(x, y, color) {
+        this.x = x;
+        this.y = y;
+        this.color = color;
+        this.size = Math.random() * 3 + 1;
+        this.speedX = (Math.random() - 0.5) * 8;
+        this.speedY = (Math.random() - 0.5) * 8;
+        this.alpha = 1;
+        this.decay = Math.random() * 0.02 + 0.01;
+    }
 
-// Main game loop
-function gameLoop() {
-    update();
-    draw();
-    requestAnimationFrame(gameLoop);
+    update() {
+        this.x += this.speedX;
+        this.y += this.speedY;
+        this.alpha -= this.decay;
+    }
+
+    draw(ctx) {
+        ctx.save();
+        ctx.globalAlpha = this.alpha;
+        ctx.fillStyle = this.color;
+        ctx.shadowBlur = 5;
+        ctx.shadowColor = this.color;
+        ctx.fillRect(this.x, this.y, this.size, this.size);
+        ctx.restore();
+    }
 }
 
-// Update game state
-function update() {
-    // Ball movement
-    ballX += ballVelX;
-    ballY += ballVelY;
-
-    // Top/bottom wall collision
-    if (ballY - ballRadius < 0) {
-        ballY = ballRadius;
-        ballVelY *= -1;
-    }
-    if (ballY + ballRadius > canvas.height) {
-        ballY = canvas.height - ballRadius;
-        ballVelY *= -1;
+class Ball {
+    constructor(canvasWidth, canvasHeight) {
+        this.canvasWidth = canvasWidth;
+        this.canvasHeight = canvasHeight;
+        this.radius = 8;
+        this.reset();
+        this.trail = [];
+        this.maxTrail = 10;
     }
 
-    // Left paddle collision
-    if (
-        ballX - ballRadius < playerX + paddleWidth &&
-        ballY + ballRadius > playerY &&
-        ballY - ballRadius < playerY + paddleHeight
-    ) {
-        ballX = playerX + paddleWidth + ballRadius;
-        ballVelX *= -1;
-
-        // Add effect based on hit position
-        let collidePoint = ballY - (playerY + paddleHeight / 2);
-        collidePoint /= paddleHeight / 2;
-        let angle = collidePoint * Math.PI / 4;
-        let direction = 1;
-        ballVelX = direction * ballSpeed * Math.cos(angle);
-        ballVelY = ballSpeed * Math.sin(angle);
+    reset(direction = 1) {
+        this.x = this.canvasWidth / 2;
+        this.y = this.canvasHeight / 2;
+        this.baseSpeed = 7;
+        this.speed = this.baseSpeed;
+        
+        const angle = (Math.random() * Math.PI / 4) - (Math.PI / 8);
+        this.velX = direction * this.speed * Math.cos(angle);
+        this.velY = this.speed * Math.sin(angle);
+        this.trail = [];
     }
 
-    // Right paddle collision (AI)
-    if (
-        ballX + ballRadius > aiX &&
-        ballY + ballRadius > aiY &&
-        ballY - ballRadius < aiY + paddleHeight
-    ) {
-        ballX = aiX - ballRadius;
-        ballVelX *= -1;
+    update(dt) {
+        // Save trail
+        this.trail.unshift({ x: this.x, y: this.y });
+        if (this.trail.length > this.maxTrail) this.trail.pop();
 
-        let collidePoint = ballY - (aiY + paddleHeight / 2);
-        collidePoint /= paddleHeight / 2;
-        let angle = collidePoint * Math.PI / 4;
-        let direction = -1;
-        ballVelX = direction * ballSpeed * Math.cos(angle);
-        ballVelY = ballSpeed * Math.sin(angle);
+        // Movement with Delta Time normalization (assumes 60fps base)
+        const speedMultiplier = dt / 16.67;
+        this.x += this.velX * speedMultiplier;
+        this.y += this.velY * speedMultiplier;
+
+        // Top/Bottom bounce
+        if (this.y - this.radius < 0) {
+            this.y = this.radius;
+            this.velY *= -1;
+            return 'wall';
+        }
+        if (this.y + this.radius > this.canvasHeight) {
+            this.y = this.canvasHeight - this.radius;
+            this.velY *= -1;
+            return 'wall';
+        }
+        return null;
     }
 
-    // Score update & reset
-    if (ballX - ballRadius < 0) {
-        aiScore++;
-        resetBall(-1);
-    }
-    if (ballX + ballRadius > canvas.width) {
-        playerScore++;
-        resetBall(1);
-    }
+    draw(ctx) {
+        // Draw Trail
+        this.trail.forEach((pos, i) => {
+            const alpha = 1 - (i / this.maxTrail);
+            ctx.beginPath();
+            ctx.arc(pos.x, pos.y, this.radius * (1 - i / this.maxTrail), 0, Math.PI * 2);
+            ctx.fillStyle = `rgba(255, 242, 0, ${alpha * 0.3})`;
+            ctx.fill();
+        });
 
-    // Simple AI movement
-    let targetY = ballY - paddleHeight / 2;
-    let aiSpeed = Math.abs(ballVelX) > 7 ? 7 : 5;
-    if (aiY + paddleHeight / 2 < targetY) aiY += aiSpeed;
-    else if (aiY + paddleHeight / 2 > targetY) aiY -= aiSpeed;
-    // Clamp AI paddle
-    if (aiY < 0) aiY = 0;
-    if (aiY > canvas.height - paddleHeight) aiY = canvas.height - paddleHeight;
+        // Draw Ball
+        ctx.save();
+        ctx.beginPath();
+        ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+        ctx.fillStyle = COLORS.YELLOW;
+        ctx.shadowBlur = 15;
+        ctx.shadowColor = COLORS.YELLOW;
+        ctx.fill();
+        ctx.restore();
+    }
 }
 
-// Reset ball to center after score
-function resetBall(direction) {
-    ballX = canvas.width / 2;
-    ballY = canvas.height / 2;
-    ballVelX = ballSpeed * direction;
-    ballVelY = ballSpeed * (Math.random() * 2 - 1);
+class Paddle {
+    constructor(x, y, width, height, color) {
+        this.x = x;
+        this.y = y;
+        this.width = width;
+        this.height = height;
+        this.color = color;
+        this.score = 0;
+    }
+
+    draw(ctx) {
+        ctx.save();
+        ctx.fillStyle = this.color;
+        ctx.shadowBlur = 15;
+        ctx.shadowColor = this.color;
+        ctx.fillRect(this.x, this.y, this.width, this.height);
+        
+        // Add a highlight line
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
+        ctx.fillRect(this.x + this.width/2 - 1, this.y, 2, this.height);
+        ctx.restore();
+    }
 }
 
-// Draw everything
-function draw() {
-    // Clear
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
+class Game {
+    constructor() {
+        this.canvas = document.getElementById('pong-canvas');
+        this.ctx = this.canvas.getContext('2d');
+        
+        // Fix canvas resolution
+        this.width = 800;
+        this.height = 500;
+        this.canvas.width = this.width;
+        this.canvas.height = this.height;
 
-    // Draw net
-    ctx.setLineDash([10, 15]);
-    ctx.beginPath();
-    ctx.moveTo(canvas.width / 2, 0);
-    ctx.lineTo(canvas.width / 2, canvas.height);
-    ctx.strokeStyle = "#aaa";
-    ctx.lineWidth = 4;
-    ctx.stroke();
-    ctx.setLineDash([]);
+        this.state = STATES.START;
+        this.lastTime = 0;
+        this.shakeTime = 0;
+        
+        this.ball = new Ball(this.width, this.height);
+        this.player = new Paddle(20, this.height/2 - 50, 12, 100, COLORS.BLUE);
+        this.ai = new Paddle(this.width - 32, this.height/2 - 50, 12, 100, COLORS.PINK);
+        
+        this.particles = [];
+        this.keys = {};
 
-    // Draw paddles
-    ctx.fillStyle = "#fff";
-    ctx.fillRect(playerX, playerY, paddleWidth, paddleHeight);
-    ctx.fillRect(aiX, aiY, paddleWidth, paddleHeight);
+        this.initEventListeners();
+        this.updateUI();
+        requestAnimationFrame(this.loop.bind(this));
+    }
 
-    // Draw ball
-    ctx.beginPath();
-    ctx.arc(ballX, ballY, ballRadius, 0, Math.PI * 2);
-    ctx.fillStyle = "#ffd700";
-    ctx.fill();
+    initEventListeners() {
+        window.addEventListener('keydown', e => {
+            this.keys[e.code] = true;
+            if (e.code === 'Space') this.togglePause();
+        });
+        window.addEventListener('keyup', e => this.keys[e.code] = false);
 
-    // Draw scores
-    ctx.font = "40px Arial";
-    ctx.fillStyle = "#fff";
-    ctx.fillText(playerScore, canvas.width / 2 - 80, 50);
-    ctx.fillText(aiScore, canvas.width / 2 + 50, 50);
+        this.canvas.addEventListener('mousemove', e => {
+            if (this.state !== STATES.PLAYING) return;
+            const rect = this.canvas.getBoundingClientRect();
+            const mouseY = e.clientY - rect.top;
+            this.player.y = mouseY - this.player.height / 2;
+            this.clampPaddle(this.player);
+        });
+
+        document.getElementById('start-btn').onclick = () => this.start();
+        document.getElementById('resume-btn').onclick = () => this.state = STATES.PLAYING;
+        document.getElementById('restart-btn').onclick = () => this.start();
+    }
+
+    start() {
+        this.player.score = 0;
+        this.ai.score = 0;
+        this.ball.reset();
+        this.state = STATES.PLAYING;
+        this.updateUI();
+    }
+
+    togglePause() {
+        if (this.state === STATES.PLAYING) this.state = STATES.PAUSED;
+        else if (this.state === STATES.PAUSED) this.state = STATES.PLAYING;
+        this.updateUI();
+    }
+
+    clampPaddle(paddle) {
+        if (paddle.y < 0) paddle.y = 0;
+        if (paddle.y > this.height - paddle.height) paddle.y = this.height - paddle.height;
+    }
+
+    createParticles(x, y, color, count = 10) {
+        for (let i = 0; i < count; i++) {
+            this.particles.push(new Particle(x, y, color));
+        }
+    }
+
+    applyShake() {
+        this.shakeTime = 10;
+    }
+
+    update(dt) {
+        if (this.state !== STATES.PLAYING) return;
+
+        // Player Keyboard Movement
+        const paddleSpeed = 8;
+        if (this.keys['KeyW'] || this.keys['ArrowUp']) this.player.y -= paddleSpeed;
+        if (this.keys['KeyS'] || this.keys['ArrowDown']) this.player.y += paddleSpeed;
+        this.clampPaddle(this.player);
+
+        // AI Movement (Improved with slight delay/smoothness)
+        const aiTarget = this.ball.y - this.ai.height / 2;
+        const aiSpeed = 5.5 + (this.player.score / 5); // Difficulty scales with score
+        if (this.ai.y + this.ai.height / 2 < this.ball.y - 10) this.ai.y += aiSpeed;
+        else if (this.ai.y + this.ai.height / 2 > this.ball.y + 10) this.ai.y -= aiSpeed;
+        this.clampPaddle(this.ai);
+
+        // Ball Logic
+        const collision = this.ball.update(dt);
+        if (collision === 'wall') {
+            this.createParticles(this.ball.x, this.ball.y, COLORS.WHITE, 5);
+        }
+
+        // Paddle Collisions
+        this.checkPaddleCollision(this.player, 1);
+        this.checkPaddleCollision(this.ai, -1);
+
+        // Scoring
+        if (this.ball.x < 0) {
+            this.ai.score++;
+            this.handleScore(-1);
+        } else if (this.ball.x > this.width) {
+            this.player.score++;
+            this.handleScore(1);
+        }
+
+        // Particles
+        this.particles.forEach((p, i) => {
+            p.update();
+            if (p.alpha <= 0) this.particles.splice(i, 1);
+        });
+
+        if (this.shakeTime > 0) this.shakeTime--;
+    }
+
+    checkPaddleCollision(paddle, direction) {
+        const b = this.ball;
+        if (
+            b.y + b.radius > paddle.y &&
+            b.y - b.radius < paddle.y + paddle.height
+        ) {
+            if (direction === 1 && b.x - b.radius < paddle.x + paddle.width && b.x > paddle.x) {
+                this.hitPaddle(paddle, direction);
+            } else if (direction === -1 && b.x + b.radius > paddle.x && b.x < paddle.x + paddle.width) {
+                this.hitPaddle(paddle, direction);
+            }
+        }
+    }
+
+    hitPaddle(paddle, direction) {
+        const b = this.ball;
+        b.x = direction === 1 ? paddle.x + paddle.width + b.radius : paddle.x - b.radius;
+        
+        // Angle calculation
+        const collidePoint = (b.y - (paddle.y + paddle.height / 2)) / (paddle.height / 2);
+        const angle = collidePoint * (Math.PI / 3);
+        
+        b.speed += 0.5; // Dynamic Difficulty
+        b.velX = direction * b.speed * Math.cos(angle);
+        b.velY = b.speed * Math.sin(angle);
+
+        this.createParticles(b.x, b.y, paddle.color, 15);
+        this.applyShake();
+    }
+
+    handleScore(direction) {
+        this.createParticles(this.ball.x, this.ball.y, direction === 1 ? COLORS.BLUE : COLORS.PINK, 30);
+        this.applyShake();
+        this.updateUI();
+        
+        if (this.player.score >= 10 || this.ai.score >= 10) {
+            this.gameOver();
+        } else {
+            this.ball.reset(direction * -1);
+        }
+    }
+
+    updateUI() {
+        document.getElementById('player-score').innerText = this.player.score;
+        document.getElementById('ai-score').innerText = this.ai.score;
+        
+        const overlay = document.getElementById('overlay');
+        const screens = ['start-screen', 'pause-screen', 'game-over-screen'];
+        
+        overlay.classList.remove('visible');
+        screens.forEach(id => document.getElementById(id).classList.add('hidden'));
+
+        if (this.state === STATES.START) {
+            overlay.classList.add('visible');
+            document.getElementById('start-screen').classList.remove('hidden');
+        } else if (this.state === STATES.PAUSED) {
+            overlay.classList.add('visible');
+            document.getElementById('pause-screen').classList.remove('hidden');
+        } else if (this.state === STATES.GAMEOVER) {
+            overlay.classList.add('visible');
+            document.getElementById('game-over-screen').classList.remove('hidden');
+            const win = this.player.score >= 10;
+            document.getElementById('result-text').innerText = win ? "YOU WIN!" : "CPU WINS";
+            document.getElementById('result-text').style.color = win ? COLORS.BLUE : COLORS.PINK;
+            document.getElementById('final-score-text').innerText = `Final Score: ${this.player.score} - ${this.ai.score}`;
+        }
+    }
+
+    gameOver() {
+        this.state = STATES.GAMEOVER;
+        this.updateUI();
+    }
+
+    draw() {
+        this.ctx.clearRect(0, 0, this.width, this.height);
+
+        this.ctx.save();
+        if (this.shakeTime > 0) {
+            const dx = (Math.random() - 0.5) * 10;
+            const dy = (Math.random() - 0.5) * 10;
+            this.ctx.translate(dx, dy);
+        }
+
+        // Draw Midline
+        this.ctx.setLineDash([15, 20]);
+        this.ctx.beginPath();
+        this.ctx.moveTo(this.width / 2, 0);
+        this.ctx.lineTo(this.width / 2, this.height);
+        this.ctx.strokeStyle = 'rgba(255, 255, 255, 0.1)';
+        this.ctx.lineWidth = 2;
+        this.ctx.stroke();
+        this.ctx.setLineDash([]);
+
+        this.player.draw(this.ctx);
+        this.ai.draw(this.ctx);
+        this.ball.draw(this.ctx);
+        this.particles.forEach(p => p.draw(this.ctx));
+
+        this.ctx.restore();
+    }
+
+    loop(time) {
+        const dt = time - this.lastTime;
+        this.lastTime = time;
+
+        this.update(dt);
+        this.draw();
+        requestAnimationFrame(this.loop.bind(this));
+    }
 }
 
-// Start game
-gameLoop();
+// Start Game
+window.onload = () => new Game();
