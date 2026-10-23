@@ -1,0 +1,14 @@
+{
+  "name": "Neon Pong",
+  "short_name": "Neon Pong",
+  "description": "Game Pong modern dengan efek neon, AI, mode 2 pemain, gamepad & sentuh.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "fullscreen",
+  "orientation": "landscape",
+  "background_color": "#05050b",
+  "theme_color": "#05050b",
+  "icons": [
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}
